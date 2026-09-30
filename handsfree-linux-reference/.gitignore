@@ -1,0 +1,53 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.Python
+*.egg-info/
+dist/
+build/
+*.egg
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# App config / user data (written at runtime)
+config.toml
+*.log
+
+# Audio test files
+*.wav
+*.pcm
+*.raw
+
+# Claude Code skills / local AI config (not for public repo)
+.claude/
+
+# Secrets / personal info
+.env
+.env.*
+*.token
+*.secret
+secrets.toml
+secrets.json
+gh_token
+*_token.txt
+*.pem
+*.key
+id_rsa
+id_ed25519
+*.p12
+*.pfx

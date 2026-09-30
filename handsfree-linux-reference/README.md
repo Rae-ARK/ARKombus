@@ -1,0 +1,188 @@
+# HandsFree for Linux
+
+A Bluetooth hands-free utility for Linux — adds hands-free calling to your computer, like a car speakerphone kit.  
+Your phone connects via HFP (Hands-Free Profile) and HandsFree handles calls, contacts, and audio routing.
+
+---
+
+## Screenshots
+
+| Contacts | Dial | Settings | Tray |
+|---|---|---|---|
+| ![Contacts](docs/screenshots/contacts.png) | ![Dial](docs/screenshots/dial.png) | ![Settings](docs/screenshots/settings.png) | ![Tray](docs/screenshots/tray.png) |
+
+---
+
+## Features
+
+- **Incoming & outgoing calls** — answer, decline, or dial from your computer
+- **Contact sync** — pulls your phone's contact book via PBAP (including profile photos)
+- **Contact profiles** — photo, name, full call history, one-click call
+- **In-call screen** — shows contact name/photo, live duration timer, volume slider, Mute and End Call buttons
+- **Floating call overlay** — always-on-top mini window visible even when the app is minimised; shows avatar, timer, Mute, End Call; flashes red "Call Ended" when the call ends
+- **Ringtone** — plays system ringtone on incoming calls; plays ringback tone while waiting for the other person to pick up
+- **Call log** — incoming / outgoing / missed calls with contact names, duration, timestamps; right-click to open profile or redial
+- **Audio device selection** — choose speaker and microphone directly from the in-call screen
+- **System tray icon** — grey (disconnected) · green (connected) · red (in call)
+- **VoIP detection** — suppresses Bluetooth calls when Teams / Zoom / Meet / Slack / Discord is active
+
+---
+
+## Supported devices
+
+Any phone that supports **Bluetooth HFP (Hands-Free Profile)** works — that's essentially every smartphone made in the last 15 years. If your phone can connect to a car hands-free kit, it works with HandsFree.
+
+| Platform | Calls | Contact sync |
+|---|---|---|
+| **iPhone** (iPhone 3G+) | ✅ | ✅ Reliable on all models |
+| **Android** (all manufacturers) | ✅ | ⚠️ Requires permission on Android 12+; varies by manufacturer |
+| **Older Nokia / feature phones** | ✅ | ❌ No PBAP |
+| **Any Bluetooth HFP device** | ✅ | Depends on device |
+
+> **Android note:** Samsung, Pixel, Xiaomi, OnePlus, Sony and all other Android phones work for calls. Contact sync depends on the manufacturer and Android version — you will see a permission prompt on the phone when syncing.
+
+### Host computer requirements
+
+Any Linux computer or laptop with Bluetooth 2.1 or newer. This covers virtually all hardware made after 2008.
+
+| Hardware | Support |
+|---|---|
+| **Built-in Bluetooth** (laptops, modern desktops) | ✅ Works out of the box |
+| **USB Bluetooth dongle** | ✅ Any dongle supported by the Linux kernel |
+| **Desktop PC without Bluetooth** | ✅ Add a USB dongle (~€5) |
+
+> **Bluetooth version:** HFP requires Bluetooth 2.1+. For wideband audio (HD voice via mSBC codec) your adapter needs Bluetooth 4.0+. Older adapters fall back to CVSD (narrowband) automatically.
+
+> **Important:** Your computer's Bluetooth adapter must be set to **Hands-Free** role in BlueZ for this app to work. This is what HandsFree registers on startup — do **not** let WirePlumber or PulseAudio claim the HFP role first, or the connection will fail. See the [WirePlumber conflict](#wireplumber-conflict) section below.
+
+---
+
+## Requirements
+
+### Linux
+
+**Ubuntu / Debian:**
+```bash
+sudo apt install bluez bluez-obexd python3-dbus python3-gi python3-venv python3-full
+pip install -r requirements.txt
+```
+
+> **Ubuntu 24.04+ / Kubuntu 24.04+:** Python is externally managed — use the install script (`bash scripts/install.sh`) which automatically creates a virtualenv, or run manually:
+> ```bash
+> python3 -m venv --system-site-packages .venv
+> .venv/bin/pip install PyQt6 vobject psutil
+> .venv/bin/python3 main.py
+> ```
+
+**Arch / CachyOS / Manjaro:**
+```bash
+sudo pacman -Sy --needed python-dbus python-gobject bluez bluez-obex
+pip install -r requirements.txt
+```
+
+| Package | Purpose |
+|---|---|
+| `PyQt6` | UI framework |
+| `dbus-python` | BlueZ / obexd D-Bus communication |
+| `PyGObject` (python3-gi) | GLib main loop integration |
+| `vobject` | vCard parsing for PBAP contact sync |
+| `psutil` | VoIP process detection |
+
+### Audio
+
+HandsFree uses PipeWire (via `pactl`) for audio routing. PipeWire is the default on Ubuntu 22.04+, Fedora 34+, and most modern distros.
+
+---
+
+## Quick Start
+
+```bash
+git clone https://github.com/PavelTarlev1/handsfree-linux.git
+cd handsfree-linux
+bash scripts/install.sh
+python3 main.py
+```
+
+The app starts in the system tray. Right-click the headset icon to connect your phone.
+
+**Debug mode** (shows detailed logs):
+```bash
+python3 main.py --debug
+```
+
+---
+
+## Pairing your phone
+
+1. Pair your phone with your computer via system Bluetooth settings (just once).
+2. Open HandsFree → right-click tray icon → **Connect**.
+3. On Android: accept the contacts permission popup on your phone.  
+   On iPhone: go to **Settings → Bluetooth → tap ⓘ next to your computer → enable "Sync Contacts"**.
+
+---
+
+## WirePlumber conflict
+
+On systems running WirePlumber, it also tries to register the HFP Hands-Free role, causing:
+
+```
+org.bluez.Error.AlreadyExists
+```
+
+Fix: disable WirePlumber's HFP node. See **[docs/wireplumber-setup.md](docs/wireplumber-setup.md)** for step-by-step instructions.
+
+---
+
+## Project structure
+
+```
+main.py                  Entry point
+scripts/
+  install.sh             Install dependencies, icons, desktop entry
+  uninstall.sh           Remove the app
+  release.sh             Bump version, tag, and build release tarball
+core/
+  app.py                 Main coordinator — wires all subsystems together
+  version.py             Reads VERSION file
+  updater.py             GitHub release checker and in-place updater
+bluetooth/
+  hfp_profile.py         Registers HFP HF profile with BlueZ via D-Bus
+  slc.py                 SLC state machine — AT command handshake
+  at_handler.py          AT command parser/builder
+  pbap_client.py         Pulls contacts + photos from phone via PBAP/obexd
+  agent.py               BlueZ pairing agent (auto-accepts)
+audio/
+  manager.py             Routes PipeWire SCO sink/source on call start/end
+  sco_bridge.py          Low-level SCO socket ↔ pacat audio bridge
+  ringer.py              Looping ringtone / ringback tone player
+  recorder.py            Records calls to stereo WAV (RX + TX channels)
+contacts/
+  models.py              Contact and CallLog dataclasses
+  store.py               SQLite CRUD — contacts, call log, photos
+voip/
+  detector.py            Detects active VoIP apps via /proc, pactl, pw-dump
+ui/
+  main_window.py         Main window — contacts, dial pad, call log, settings
+  contacts_widget.py     Contact list with search, rename, delete
+  contact_profile.py     Contact profile dialog — photo, history, call button
+  call_popup.py          Incoming call popup — Answer / Decline / Silence
+  call_overlay.py        Floating always-on-top in-call overlay
+  tray.py                System tray icon and menu
+resources/
+  icon.svg               Source icon
+  icon_*.png             App icon at 16/32/48/64/128/256/512px
+```
+
+---
+
+## Configuration
+
+Config file: `~/.config/handsfree/config.toml` (created with defaults on first run)  
+Database: `~/.config/handsfree/contacts.db`  
+Logs: `~/.config/handsfree/handsfree.log`
+
+---
+
+## License
+
+MIT
