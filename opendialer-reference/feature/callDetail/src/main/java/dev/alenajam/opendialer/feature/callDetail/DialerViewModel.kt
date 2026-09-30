@@ -1,0 +1,118 @@
+package dev.alenajam.opendialer.feature.callDetail
+
+import android.app.Application
+import android.content.Intent
+import android.net.Uri
+import android.telecom.PhoneAccount
+import androidx.lifecycle.LiveData
+import androidx.lifecycle.MutableLiveData
+import androidx.lifecycle.SavedStateHandle
+import androidx.lifecycle.ViewModel
+import androidx.lifecycle.viewModelScope
+import androidx.navigation.toRoute
+import dagger.hilt.android.lifecycle.HiltViewModel
+import dev.alenajam.opendialer.core.common.CommonUtils
+import dev.alenajam.opendialer.core.common.ContactsHelper
+import dev.alenajam.opendialer.core.common.functional.Event
+import dev.alenajam.opendialer.core.common.telecom.CallAccount
+import dev.alenajam.opendialer.core.common.telecom.CallPlacementRepository
+import dev.alenajam.opendialer.core.common.telecom.CallPlacementResult
+import dev.alenajam.opendialer.data.calls.CallOption
+import dev.alenajam.opendialer.data.calls.CallsRepositoryImpl
+import dev.alenajam.opendialer.data.calls.DialerCall
+import kotlinx.coroutines.launch
+import javax.inject.Inject
+
+@HiltViewModel
+class DialerViewModel
+@Inject constructor(
+    savedStateHandle: SavedStateHandle,
+    private val app: Application,
+    private val getDetailOptions: GetDetailOptions,
+    private val deleteCallsUseCase: DeleteCalls,
+    private val blockCallerUseCase: BlockCaller,
+    private val unblockCallerUseCase: UnblockCaller,
+    private val callsRepositoryImpl: CallsRepositoryImpl,
+    private val callPlacementRepository: CallPlacementRepository,
+) : ViewModel() {
+    private val _call: MutableLiveData<DialerCall> = MutableLiveData()
+    val call: LiveData<DialerCall> = _call
+    val detailOptions: MutableLiveData<List<CallOption>> =
+        MutableLiveData()
+    val deletedDetailCalls: MutableLiveData<Event<Unit>> = MutableLiveData()
+    val blockedCaller: MutableLiveData<Event<Unit>> = MutableLiveData()
+    val unblockedCaller: MutableLiveData<Event<Unit>> = MutableLiveData()
+    private val callDetail = savedStateHandle.toRoute<CallDetailRoute>()
+
+    init {
+        observeCallByIds(callDetail.callIds)
+    }
+
+    private fun observeCallByIds(ids: List<Int>) {
+        viewModelScope.launch {
+            callsRepositoryImpl.observeCallByIds(ids).collect { result ->
+                result.fold(
+                    { /* TODO handle failure */ },
+                    { call -> _call.postValue(DialerCall.mapList(call).first()) }
+                )
+            }
+        }
+    }
+
+    fun getDetailOptions(call: DialerCall) =
+        getDetailOptions(viewModelScope, call) { it.fold({}, ::handleDetailOptions) }
+
+    fun makeCall(number: String): CallPlacementResult = callPlacementRepository.placeCall(number)
+
+    fun makeCall(number: String, account: CallAccount): CallPlacementResult =
+        callPlacementRepository.placeCall(number, account)
+
+    fun copyNumber(call: DialerCall) = CommonUtils.copyToClipobard(app, call.contactInfo.number)
+
+    fun sendMessage() {
+        call.value?.number?.let { CommonUtils.makeSms(app, it) }
+    }
+
+    fun openContact(call: DialerCall) {
+        ContactsHelper.getContactByPhoneNumber(app, call.contactInfo.number)?.let {
+            CommonUtils.showContactDetail(app, it.id)
+        }
+    }
+
+    fun editNumberBeforeCall(call: DialerCall) {
+        val intent = Intent(Intent.ACTION_DIAL).apply {
+            data = Uri.fromParts(PhoneAccount.SCHEME_TEL, call.number, null)
+        }
+        intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        app.startActivity(intent)
+    }
+
+
+    fun deleteCalls(call: DialerCall) = deleteCallsUseCase(viewModelScope, call.childCalls) {
+        it.fold(
+            {},
+            ::handleDeletedDetailCalls
+        )
+    }
+
+    fun blockCaller(call: DialerCall) = call.contactInfo.number?.let {
+        blockCallerUseCase(
+            viewModelScope,
+            it
+        ) { res -> res.fold({}, ::handleBlockCaller) }
+    }
+
+    fun unblockCaller(call: DialerCall) = call.contactInfo.number?.let {
+        unblockCallerUseCase(
+            viewModelScope,
+            it
+        ) { res -> res.fold({}, ::handleUnblockCaller) }
+    }
+
+    private fun handleDetailOptions(options: List<CallOption>) =
+        detailOptions.postValue(options)
+
+    private fun handleDeletedDetailCalls(unit: Unit) = deletedDetailCalls.postValue(Event(Unit))
+    private fun handleBlockCaller(unit: Unit) = blockedCaller.postValue(Event(Unit))
+    private fun handleUnblockCaller(unit: Unit) = unblockedCaller.postValue(Event(Unit))
+}

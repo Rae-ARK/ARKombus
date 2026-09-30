@@ -1,0 +1,314 @@
+package dev.alenajam.opendialer.feature.contacts
+
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.material.icons.Icons
+import androidx.compose.material3.Button
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SearchBar
+import androidx.compose.material3.SearchBarDefaults
+import androidx.compose.material3.Surface
+import androidx.compose.material3.Text
+import androidx.compose.material3.TopAppBar
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.unit.dp
+import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import dev.alenajam.opendialer.core.common.ui.AppIcon
+import dev.alenajam.opendialer.core.common.ui.ContactAvatar
+import dev.alenajam.opendialer.core.common.ui.contactAvatarColorKey
+import dev.alenajam.opendialer.core.common.PermissionUtils
+import dev.alenajam.opendialer.core.common.ui.LocalAppIcons
+import dev.alenajam.opendialer.data.contacts.DialerContactSummary
+import dev.alenajam.opendialer.feature.contacts.R
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun AddFavoriteScreen(
+    onNavigateBack: () -> Unit,
+    viewModel: ContactsViewModel = hiltViewModel()
+) {
+    ContactPickerScreen(
+        onNavigateBack = onNavigateBack,
+        onContactSelected = { contact ->
+            viewModel.toggleFavorite(contact.id, true)
+            onNavigateBack()
+        },
+        viewModel = viewModel
+    )
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun ContactPickerScreen(
+    onNavigateBack: () -> Unit,
+    onContactSelected: (DialerContactSummary) -> Unit,
+    viewModel: ContactsViewModel = hiltViewModel()
+) {
+    val contacts by viewModel.contacts.collectAsStateWithLifecycle()
+    val hasPermission by viewModel.hasRuntimePermission.collectAsStateWithLifecycle()
+    var isSearching by remember { mutableStateOf(false) }
+    var searchQuery by remember { mutableStateOf("") }
+    val searchFocusRequester = remember { FocusRequester() }
+    val focusManager = LocalFocusManager.current
+
+    val requestPermissions =
+        rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { result ->
+            if (PermissionUtils.contactsPermissions.all { result[it] == true }) {
+                viewModel.handleRuntimePermissionGranted()
+            }
+        }
+
+    val items: List<ContactListItem> = remember(contacts, isSearching, searchQuery) {
+        val query = searchQuery.trim()
+        if (isSearching && query.isNotEmpty()) {
+            return@remember contacts
+                .filter { contact ->
+                    contact.name.contains(query, ignoreCase = true)
+                }
+                .sortedBy { it.name }
+                .map { ContactListItem.ContactItem(it) }
+        }
+
+        buildList {
+            val favorites = contacts.filter { it.starred }.sortedBy { it.name }
+            if (favorites.isNotEmpty()) {
+                add(ContactListItem.Header(label = "", isFavorites = true))
+                addAll(favorites.map { ContactListItem.ContactItem(it) })
+            }
+
+            contacts
+                .groupBy { it.name.firstOrNull()?.uppercaseChar() ?: '#' }
+                .toSortedMap()
+                .forEach { (char, contactsForChar) ->
+                    add(ContactListItem.Header(char.toString()))
+                    addAll(contactsForChar.sortedBy { it.name }.map { ContactListItem.ContactItem(it) })
+                }
+        }
+    }
+    val listState = rememberLazyListState()
+
+    LaunchedEffect(isSearching) {
+        if (isSearching) searchFocusRequester.requestFocus() else focusManager.clearFocus()
+    }
+
+    Scaffold(
+        topBar = {
+            if (isSearching) {
+                SearchBar(
+                    inputField = {
+                        SearchBarDefaults.InputField(
+                            query = searchQuery,
+                            onQueryChange = { searchQuery = it },
+                            onSearch = {},
+                            expanded = false,
+                            onExpandedChange = {},
+                            placeholder = { Text(stringResource(R.string.search_contacts)) },
+                            leadingIcon = {
+                                AppIcon(
+                                    LocalAppIcons.current.search,
+                                    contentDescription = null,
+                                    modifier = Modifier.size(24.dp)
+                                )
+                            },
+                            trailingIcon = {
+                                IconButton(onClick = {
+                                    if (searchQuery.isNotEmpty()) {
+                                        searchQuery = ""
+                                    } else {
+                                        isSearching = false
+                                    }
+                                }) {
+                                    AppIcon(
+                                        LocalAppIcons.current.close,
+                                        contentDescription = stringResource(R.string.close_search),
+                                        modifier = Modifier.size(24.dp)
+                                    )
+                                }
+                            },
+                            modifier = Modifier.focusRequester(searchFocusRequester)
+                        )
+                    },
+                    expanded = false,
+                    onExpandedChange = {},
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp, vertical = 8.dp)
+                ) {}
+            } else {
+                TopAppBar(
+                    title = { Text(stringResource(R.string.choose_contact)) },
+                    navigationIcon = {
+                        IconButton(onClick = onNavigateBack) {
+                            AppIcon(LocalAppIcons.current.arrowLeft, contentDescription = stringResource(R.string.navigate_back))
+                        }
+                    },
+                    actions = {
+                        IconButton(onClick = { isSearching = true }) {
+                            AppIcon(
+                                LocalAppIcons.current.search,
+                                contentDescription = stringResource(R.string.search),
+                                modifier = Modifier.size(24.dp)
+                            )
+                        }
+                    }
+                )
+            }
+        }
+    ) { innerPadding ->
+        Surface(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(innerPadding)
+        ) {
+            if (!hasPermission) {
+                PermissionPrompt(
+                    requestPermissions = { requestPermissions.launch(PermissionUtils.contactsPermissions) }
+                )
+            } else {
+                Box(modifier = Modifier.fillMaxSize()) {
+                    LazyColumn(state = listState, modifier = Modifier.fillMaxSize()) {
+                    items(items) { item ->
+                        when (item) {
+                            is ContactListItem.Header -> {
+                                SectionHeader(text = item.label, isFavorites = item.isFavorites)
+                            }
+                            is ContactListItem.ContactItem -> {
+                                FavoritePickerRow(
+                                    contact = item.contact,
+                                    onClick = {
+                                        onContactSelected(item.contact)
+                                    }
+                                )
+                            }
+                        }
+                    }
+                    }
+                    ContactFastScroller(
+                        listState = listState,
+                        contentDescription = stringResource(R.string.fast_scroll_contacts),
+                        modifier = Modifier.align(Alignment.CenterEnd).padding(vertical = 8.dp),
+                    )
+                }
+            }
+        }
+    }
+}
+
+private sealed class ContactListItem {
+    data class Header(val label: String, val isFavorites: Boolean = false) : ContactListItem()
+    data class ContactItem(val contact: DialerContactSummary) : ContactListItem()
+}
+
+@Composable
+private fun SectionHeader(text: String, isFavorites: Boolean = false) {
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 8.dp)
+    ) {
+        if (isFavorites) {
+            AppIcon(
+                icon = LocalAppIcons.current.favorite,
+                contentDescription = null,
+                modifier = Modifier.size(16.dp),
+                tint = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            Spacer(modifier = Modifier.width(8.dp))
+        }
+        Text(
+            text = if (isFavorites) stringResource(R.string.favorites) else text,
+            style = MaterialTheme.typography.titleMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+    }
+}
+
+@Composable
+private fun PermissionPrompt(
+    requestPermissions: () -> Unit
+) {
+    Column(
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(
+            8.dp,
+            alignment = Alignment.CenterVertically
+        ),
+        modifier = Modifier.padding(16.dp)
+    ) {
+        Text(
+            text = stringResource(R.string.favorites_permission_prompt),
+            textAlign = TextAlign.Center
+        )
+        Button(onClick = requestPermissions) {
+            Text(text = stringResource(R.string.turn_on))
+        }
+    }
+}
+
+@Composable
+private fun FavoritePickerRow(
+    contact: DialerContactSummary,
+    onClick: () -> Unit
+) {
+    Surface(
+        onClick = onClick,
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp)
+        ) {
+            ContactAvatar(
+                name = contact.name,
+                photoUri = contact.image,
+                colorKey = contactAvatarColorKey(contact.name),
+                modifier = Modifier.size(40.dp)
+            )
+
+            Column(
+                modifier = Modifier
+                    .weight(1f)
+                    .padding(horizontal = 16.dp)
+            ) {
+                Text(
+                    text = contact.name,
+                    style = MaterialTheme.typography.bodyLarge,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
+        }
+    }
+}

@@ -1,0 +1,428 @@
+package dev.alenajam.opendialer.feature.contacts
+
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.LazyListState
+import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.gestures.detectDragGestures
+import androidx.compose.foundation.background
+import androidx.compose.material.icons.Icons
+import androidx.compose.material3.Button
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.tooling.preview.Preview
+import androidx.compose.ui.unit.dp
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.offset
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.runtime.rememberCoroutineScope
+import kotlinx.coroutines.launch
+import kotlin.math.roundToInt
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import dev.alenajam.opendialer.core.common.ui.AppIcon
+import dev.alenajam.opendialer.core.common.ui.ContactAvatar
+import dev.alenajam.opendialer.core.common.ui.contactAvatarColorKey
+import dev.alenajam.opendialer.core.common.CommonUtils
+import dev.alenajam.opendialer.core.common.PermissionUtils
+import dev.alenajam.opendialer.core.common.ui.LocalAppIcons
+import dev.alenajam.opendialer.data.contacts.DialerContactSummary
+
+data class ContactRowTrailingContent(
+    val content: @Composable (DialerContactSummary, (String, String?) -> Unit) -> Unit,
+)
+
+@Composable
+fun ContactsScreen(
+    viewModel: ContactsViewModel = hiltViewModel(),
+    searchQuery: String = "",
+    @Suppress("UNUSED_PARAMETER") onOpenHistory: (callIds: List<Int>) -> Unit = {},
+    contactRowTrailingContent: ContactRowTrailingContent? = null,
+    onOpenSettingsSubpage: (String, String?) -> Unit = { _, _ -> },
+) {
+    val requestPermissions =
+        rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { result ->
+            if (PermissionUtils.contactsPermissions.all { result[it] == true }) {
+                viewModel.handleRuntimePermissionGranted()
+            }
+        }
+
+    val contacts = viewModel.contacts.collectAsStateWithLifecycle()
+    val profileContact = viewModel.profileContact.collectAsStateWithLifecycle()
+    val hasPermission = viewModel.hasRuntimePermission.collectAsStateWithLifecycle()
+    val context = LocalContext.current
+    val filteredContacts = if (searchQuery.isBlank()) {
+        contacts.value
+    } else {
+        val trimmedQuery = searchQuery.trim()
+        contacts.value.filter { contact ->
+            contact.name.contains(trimmedQuery, ignoreCase = true)
+        }
+    }
+    val groupBySection = searchQuery.isBlank()
+    val allContactsLabel = stringResource(R.string.all_contacts)
+    val favoritesLabel = stringResource(R.string.favorites)
+    val contactListItems = remember(filteredContacts, groupBySection, allContactsLabel, favoritesLabel) {
+        buildContactListItems(
+            contacts = filteredContacts,
+            groupBySection = groupBySection,
+            allContactsLabel = allContactsLabel,
+            favoritesLabel = favoritesLabel,
+        )
+    }
+    val listState = rememberLazyListState()
+
+    Surface(modifier = Modifier.fillMaxSize()) {
+        if (!hasPermission.value) {
+            Column(
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(
+                    8.dp,
+                    alignment = Alignment.CenterVertically
+                ),
+            ) {
+                Text(
+                    text = stringResource(R.string.placeholder_contacts),
+                    textAlign = TextAlign.Center,
+                )
+                Button(
+                    onClick = { requestPermissions.launch(input = PermissionUtils.contactsPermissions) }
+                ) {
+                    Text(text = stringResource(R.string.turn_on))
+                }
+            }
+            return@Surface
+        }
+
+        Box(modifier = Modifier.fillMaxSize()) {
+            LazyColumn(
+                state = listState,
+                contentPadding = PaddingValues(bottom = 88.dp),
+            ) {
+            if (searchQuery.isBlank()) {
+                item(key = "new-contact") {
+                    Button(
+                        onClick = { CommonUtils.createContact(context, null) },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 16.dp, vertical = 8.dp),
+                    ) {
+                        AppIcon(LocalAppIcons.current.personAddInContactsList, contentDescription = null)
+                        Text(
+                            text = stringResource(R.string.new_contact),
+                            modifier = Modifier.padding(start = 8.dp),
+                        )
+                    }
+                }
+                profileContact.value?.let { profile ->
+                    item(key = "profile-contact") {
+                        ProfileContactCard(
+                            contact = profile,
+                            onOpenProfile = viewModel::openProfileContact,
+                            onShareProfile = { viewModel.shareProfileContact(profile.id) },
+                        )
+                    }
+                }
+            }
+            items(
+                items = contactListItems,
+                key = { item ->
+                    when (item) {
+                        is ContactsListEntry.Header -> "header-${item.label}"
+                        is ContactsListEntry.Contact -> "contact-${item.sectionLabel}-${item.contact.id}"
+                    }
+                },
+            ) { item ->
+                when (item) {
+                    is ContactsListEntry.Header -> ContactSectionHeader(item.label, item.isFavorites)
+                    is ContactsListEntry.Contact -> {
+                        ContactRow(
+                            contact = item.contact,
+                            roundTop = item.isFirstInSection,
+                            roundBottom = item.isLastInSection,
+                            onOpenContact = { viewModel.openContact(item.contact.id) },
+                            trailingContent = contactRowTrailingContent?.let { trailingContent ->
+                                { trailingContent.content(item.contact, onOpenSettingsSubpage) }
+                            },
+                        )
+                    }
+                }
+            }
+            }
+            ContactFastScroller(
+                listState = listState,
+                contentDescription = stringResource(R.string.fast_scroll_contacts),
+                modifier = Modifier.align(Alignment.CenterEnd).padding(vertical = 8.dp),
+            )
+        }
+    }
+}
+
+@Composable
+internal fun ContactFastScroller(
+    listState: LazyListState,
+    contentDescription: String,
+    modifier: Modifier = Modifier,
+) {
+    val layoutInfo = listState.layoutInfo
+    val visibleItemCount = layoutInfo.visibleItemsInfo.size
+    val totalItemCount = layoutInfo.totalItemsCount
+    if (totalItemCount <= 12 || totalItemCount <= visibleItemCount * 2) return
+
+    val position = (listState.firstVisibleItemIndex.toFloat() /
+        (totalItemCount - visibleItemCount).coerceAtLeast(1)).coerceIn(0f, 1f)
+    val scope = rememberCoroutineScope()
+    BoxWithConstraints(
+        modifier = modifier
+            .width(40.dp)
+            .fillMaxHeight()
+            .semantics { this.contentDescription = contentDescription }
+            .pointerInput(Unit) {
+                detectDragGestures(
+                    onDragStart = { offset ->
+                        scope.launch { listState.requestScrollToItem((offset.y / size.height * (totalItemCount - visibleItemCount).coerceAtLeast(0)).roundToInt()) }
+                    },
+                    onDrag = { change, _ ->
+                        scope.launch { listState.requestScrollToItem((change.position.y / size.height * (totalItemCount - visibleItemCount).coerceAtLeast(0)).roundToInt()) }
+                    },
+                )
+            },
+    ) {
+        val thumbHeight = (maxHeight * (visibleItemCount.toFloat() / totalItemCount)).coerceIn(48.dp, maxHeight)
+        Box(
+            modifier = Modifier
+                .align(Alignment.TopEnd)
+                .padding(vertical = 8.dp)
+                .width(6.dp)
+                .height(thumbHeight)
+                .offset(y = (maxHeight - thumbHeight).coerceAtLeast(0.dp) * position)
+                .clip(RoundedCornerShape(4.dp))
+                .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.7f)),
+        )
+    }
+}
+
+@Composable
+private fun ProfileContactCard(
+    contact: DialerContactSummary,
+    onOpenProfile: () -> Unit,
+    onShareProfile: () -> Unit,
+) {
+    Surface(
+        onClick = onOpenProfile,
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 8.dp),
+        shape = RoundedCornerShape(20.dp),
+        color = MaterialTheme.colorScheme.surfaceContainerHigh,
+        shadowElevation = 0.5.dp,
+    ) {
+        Row(
+            horizontalArrangement = Arrangement.spacedBy(16.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier.padding(vertical = 8.dp, horizontal = 16.dp),
+        ) {
+            ContactAvatar(
+                name = contact.name,
+                photoUri = contact.image,
+                colorKey = contactAvatarColorKey(contact.name),
+                modifier = Modifier
+                    .size(40.dp)
+                    .clip(CircleShape),
+            )
+            Column {
+                Text(
+                    text = stringResource(R.string.your_info),
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                Text(
+                    text = contact.name,
+                    style = MaterialTheme.typography.titleMedium,
+                    color = MaterialTheme.colorScheme.onSurface,
+                )
+            }
+            androidx.compose.foundation.layout.Spacer(modifier = Modifier.weight(1f))
+            IconButton(onClick = onShareProfile) {
+                AppIcon(
+                    icon = LocalAppIcons.current.share,
+                    contentDescription = stringResource(R.string.share_contact),
+                )
+            }
+        }
+    }
+}
+
+private sealed class ContactsListEntry {
+    data class Header(val label: String, val isFavorites: Boolean = false) : ContactsListEntry()
+
+    data class Contact(
+        val contact: DialerContactSummary,
+        val sectionLabel: String,
+        val isFirstInSection: Boolean,
+        val isLastInSection: Boolean,
+    ) : ContactsListEntry()
+}
+
+private fun buildContactListItems(
+    contacts: List<DialerContactSummary>,
+    groupBySection: Boolean,
+    allContactsLabel: String,
+    favoritesLabel: String,
+): List<ContactsListEntry> = buildList {
+    fun addSection(
+        label: String,
+        sectionContacts: List<DialerContactSummary>,
+        isFavorites: Boolean = false,
+    ) {
+        if (sectionContacts.isEmpty()) return
+        add(ContactsListEntry.Header(label, isFavorites))
+        sectionContacts.forEachIndexed { index, contact ->
+            add(
+                ContactsListEntry.Contact(
+                    contact = contact,
+                    sectionLabel = label,
+                    isFirstInSection = index == 0,
+                    isLastInSection = index == sectionContacts.lastIndex,
+                )
+            )
+        }
+    }
+
+    val sortedContacts = contacts.sortedWith(compareBy(String.CASE_INSENSITIVE_ORDER) { it.name })
+    if (!groupBySection) {
+        addSection(allContactsLabel, sortedContacts)
+        return@buildList
+    }
+
+    addSection(favoritesLabel, sortedContacts.filter { it.starred }, isFavorites = true)
+    sortedContacts
+        .groupBy { it.name.firstOrNull()?.uppercaseChar()?.toString() ?: "#" }
+        .toSortedMap()
+        .forEach { (initial, sectionContacts) -> addSection(initial, sectionContacts) }
+}
+
+@Composable
+private fun ContactSectionHeader(label: String, isFavorites: Boolean) {
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 8.dp),
+    ) {
+        if (isFavorites) {
+            AppIcon(
+                icon = LocalAppIcons.current.favorite,
+                contentDescription = null,
+                modifier = Modifier.size(16.dp),
+                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            androidx.compose.foundation.layout.Spacer(modifier = Modifier.size(8.dp))
+        }
+        Text(
+            text = label,
+            style = MaterialTheme.typography.titleMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+    }
+}
+
+@Composable
+private fun ContactRow(
+    contact: DialerContactSummary,
+    roundTop: Boolean,
+    roundBottom: Boolean,
+    onOpenContact: () -> Unit,
+    trailingContent: (@Composable () -> Unit)? = null,
+) {
+    Surface(
+        onClick = onOpenContact,
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 1.dp),
+        shape = RoundedCornerShape(
+            topStart = if (roundTop) 20.dp else 2.dp,
+            topEnd = if (roundTop) 20.dp else 2.dp,
+            bottomStart = if (roundBottom) 20.dp else 2.dp,
+            bottomEnd = if (roundBottom) 20.dp else 2.dp,
+        ),
+        color = MaterialTheme.colorScheme.surfaceContainerHigh,
+        shadowElevation = 0.5.dp,
+    ) {
+        Row(
+            horizontalArrangement = Arrangement.spacedBy(16.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier.padding(vertical = 10.dp, horizontal = 16.dp),
+        ) {
+            ContactAvatar(
+                name = contact.name,
+                photoUri = contact.image,
+                colorKey = contactAvatarColorKey(contact.name),
+                modifier = Modifier
+                    .size(40.dp)
+                    .clip(CircleShape),
+            )
+
+            Text(
+                text = contact.name,
+                modifier = Modifier.weight(1f),
+                style = MaterialTheme.typography.bodyLarge,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+            trailingContent?.let { content ->
+                content()
+            }
+        }
+    }
+}
+
+val contactMock = DialerContactSummary(
+    id = 1,
+    name = "John Doe",
+    starred = false,
+    image = null,
+)
+
+@Preview(showBackground = true)
+@Composable
+private fun ContactRowPreview() {
+    ContactRow(
+        contact = contactMock,
+        roundTop = true,
+        roundBottom = true,
+        onOpenContact = {},
+    )
+}

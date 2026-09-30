@@ -1,0 +1,80 @@
+name: Discord Release Notification
+
+on:
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: Release tag to announce
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  notify-discord:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Build Discord payload
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RELEASE_TAG: ${{ inputs.release_tag }}
+          PAYLOAD_PATH: ${{ runner.temp }}/discord-release-payload.json
+        run: |
+          set -o pipefail
+          gh release view "$RELEASE_TAG" --json name,tagName,url,body,assets | jq '
+            .tagName as $tag
+            | ($tag | test("^v?[0-9]+\\.0\\.0$")) as $is_major
+            | (if $is_major then "@everyone\n" else "" end) as $mention
+            | (.name // $tag) as $release_name
+            | (.body // "") as $notes
+            | (.assets | map(select(.name | endswith(".apk"))) | first) as $apk
+            | {
+                content: ($mention + "A new release of OpenDialer is available! Use the **Download APK** link below to install it."),
+                allowed_mentions: {
+                  parse: (if $is_major then ["everyone"] else [] end)
+                },
+                embeds: [
+                  ({
+                    title: ("OpenDialer " + $release_name),
+                    url: .url,
+                    fields: (
+                      [
+                        {
+                          name: "Tag",
+                          value: $tag,
+                          inline: true
+                        }
+                      ]
+                    + (if $apk == null then [] else [
+                      {
+                        name: "Download APK",
+                        value: ("[Download OpenDialer APK](" + $apk.url + ")"),
+                        inline: false
+                      }
+                    ] end)
+                    + [
+                      {
+                        name: "💜 Support development",
+                        value: "[Support development](https://ko-fi.com/monster-dialer)",
+                        inline: false
+                      }
+                    ])
+                  }
+                  + (if $notes == "" then {} else {description: $notes[0:4096]} end))
+                ]
+              }
+          ' > "$PAYLOAD_PATH"
+
+      - name: Notify Discord
+        env:
+          DISCORD_WEBHOOK: ${{ secrets.DISCORD_WEBHOOK }}
+          PAYLOAD_PATH: ${{ runner.temp }}/discord-release-payload.json
+        run: |
+          test -n "$DISCORD_WEBHOOK"
+          curl --fail --silent --show-error --location \
+            --header "Content-Type: application/json" \
+            --data-binary "@$PAYLOAD_PATH" \
+            "$DISCORD_WEBHOOK"

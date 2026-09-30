@@ -1,0 +1,538 @@
+package dev.alenajam.opendialer.feature.callDetail
+
+import android.provider.ContactsContract
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.Block
+import androidx.compose.material.icons.outlined.CallMade
+import androidx.compose.material.icons.outlined.CallMissed
+import androidx.compose.material.icons.outlined.CallReceived
+import androidx.compose.material.icons.outlined.Message
+import androidx.compose.material.icons.outlined.Voicemail
+import androidx.compose.material3.BottomAppBar
+import androidx.compose.material3.BottomAppBarDefaults
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FloatingActionButton
+import androidx.compose.material3.FloatingActionButtonDefaults
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.material3.TopAppBar
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.livedata.observeAsState
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.tooling.preview.Preview
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.dp
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.lifecycle.compose.LocalLifecycleOwner
+import dev.alenajam.opendialer.core.common.CommonUtils
+import dev.alenajam.opendialer.core.common.formatRelativeTime
+import dev.alenajam.opendialer.core.common.PermissionUtils
+import dev.alenajam.opendialer.core.common.functional.EventObserver
+import dev.alenajam.opendialer.core.common.telecom.CallAccount
+import dev.alenajam.opendialer.core.common.telecom.CallPlacementResult
+import dev.alenajam.opendialer.core.common.ui.CallAccountPicker
+import dev.alenajam.opendialer.core.common.ui.AppIcon
+import dev.alenajam.opendialer.core.common.ui.ContactAvatar
+import dev.alenajam.opendialer.core.common.ui.contactAvatarColorKey
+import dev.alenajam.opendialer.core.common.ui.LocalAppIcons
+import dev.alenajam.opendialer.data.calls.CallType
+import dev.alenajam.opendialer.data.calls.CallOption
+import dev.alenajam.opendialer.data.calls.ContactInfo
+import dev.alenajam.opendialer.data.calls.DetailCall
+import dev.alenajam.opendialer.data.calls.DialerCall
+import java.util.Date
+
+@Composable
+fun CallDetailScreen(
+    viewModel: DialerViewModel = hiltViewModel(),
+    onNavigateBack: () -> Unit
+) {
+    val icons = LocalAppIcons.current
+    val call = viewModel.call.observeAsState()
+    val detailOptions = viewModel.detailOptions.observeAsState(emptyList())
+    val isAnon = call.value?.isAnonymous() == true
+    val isVoicemailNumber = call.value?.isVoicemailNumber == true
+    val childCalls = call.value?.childCalls ?: emptyList()
+    var pendingCallNumber by remember { mutableStateOf<String?>(null) }
+    var callAccounts by remember { mutableStateOf<List<CallAccount>?>(null) }
+    val requestCallPermissions = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestMultiplePermissions()
+    ) { result ->
+        if (PermissionUtils.makeCallPermissions.all { result[it] == true }) {
+            pendingCallNumber?.let { number ->
+                when (val placementResult = viewModel.makeCall(number)) {
+                    is CallPlacementResult.AccountSelectionRequired -> callAccounts = placementResult.accounts
+                    else -> pendingCallNumber = null
+                }
+            }
+        } else {
+            pendingCallNumber = null
+        }
+    }
+
+    fun placeCall(number: String) {
+        when (val result = viewModel.makeCall(number)) {
+            CallPlacementResult.PermissionRequired -> {
+                pendingCallNumber = number
+                requestCallPermissions.launch(PermissionUtils.makeCallPermissions)
+            }
+            is CallPlacementResult.AccountSelectionRequired -> {
+                pendingCallNumber = number
+                callAccounts = result.accounts
+            }
+            else -> Unit
+        }
+    }
+
+    LaunchedEffect(call.value) {
+        call.value?.let(viewModel::getDetailOptions)
+    }
+    
+    viewModel.deletedDetailCalls.observe(
+        LocalLifecycleOwner.current,
+        EventObserver { onNavigateBack() })
+    viewModel.blockedCaller.observe(
+        LocalLifecycleOwner.current,
+        EventObserver { call.value?.let(viewModel::getDetailOptions) })
+    viewModel.unblockedCaller.observe(
+        LocalLifecycleOwner.current,
+        EventObserver { call.value?.let(viewModel::getDetailOptions) })
+
+    callAccounts?.let { accounts ->
+        CallAccountPicker(
+            accounts = accounts,
+            onAccountSelected = { account ->
+                val number = pendingCallNumber ?: return@CallAccountPicker
+                callAccounts = null
+                when (val result = viewModel.makeCall(number, account)) {
+                    is CallPlacementResult.AccountSelectionRequired -> callAccounts = result.accounts
+                    else -> Unit
+                }
+            },
+            onDismiss = {
+                callAccounts = null
+                pendingCallNumber = null
+            },
+        )
+    }
+
+    Scaffold(
+        topBar = {
+            TopBar(
+                call = call.value,
+                options = detailOptions.value,
+                onBlock = { viewModel.blockCaller(call.value!!) },
+                onUnblock = { viewModel.unblockCaller(call.value!!) },
+                onOpenContact = { call.value?.let(viewModel::openContact) },
+                onNavigateBack = onNavigateBack
+            )
+        },
+        bottomBar = {
+            BottomBar(
+                isAnon = isAnon,
+                makeCall = { placeCall(call.value!!.number!!) },
+                sendMessage = viewModel::sendMessage,
+                copyNumber = { viewModel.copyNumber(call.value!!) },
+                dialNumber = { viewModel.editNumberBeforeCall(call.value!!) },
+                deleteCalls = { viewModel.deleteCalls(call.value!!) },
+                icons = icons
+            )
+        }
+    ) { innerPadding ->
+        Column(
+            verticalArrangement = Arrangement.Bottom,
+            modifier = Modifier
+                .fillMaxHeight()
+                .padding(innerPadding)
+        ) {
+            LazyColumn {
+                items(childCalls) { detailCall ->
+                    CallRow(
+                        call = detailCall,
+                        isVoicemailNumber = isVoicemailNumber,
+                        icons = icons,
+                    )
+                }
+            }
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun TopBar(
+    call: DialerCall?,
+    options: List<CallOption>,
+    onBlock: () -> Unit,
+    onUnblock: () -> Unit,
+    onOpenContact: () -> Unit,
+    onNavigateBack: () -> Unit
+) {
+    val canBlock = options.any { it.id == CallOption.ID_BLOCK_CALLER }
+    val canUnblock = options.any { it.id == CallOption.ID_UNBLOCK_CALLER }
+    val isNumberBlocked = canUnblock
+    var menuExpanded by remember { mutableStateOf(false) }
+    var showBlockConfirmation by remember { mutableStateOf(false) }
+
+    if (showBlockConfirmation && call != null) {
+        val caller = call.contactInfo.name?.takeIf { it.isNotBlank() }
+            ?: call.contactInfo.number.orEmpty()
+        AlertDialog(
+            onDismissRequest = { showBlockConfirmation = false },
+            title = { Text(stringResource(R.string.block_confirmation_title, caller)) },
+            text = { Text(stringResource(R.string.block_confirmation_message)) },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        showBlockConfirmation = false
+                        onBlock()
+                    }
+                ) {
+                    Text(stringResource(R.string.blockThisCaller))
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showBlockConfirmation = false }) {
+                    Text(stringResource(R.string.cancel))
+                }
+            }
+        )
+    }
+
+    TopAppBar(
+        title = {
+            if (call != null) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    ContactAvatar(
+                        name = call.contactInfo.name.takeUnless { call.isVoicemailNumber },
+                        photoUri = call.contactInfo.photoUri.takeUnless { call.isVoicemailNumber },
+                        colorKey = contactAvatarColorKey(call.contactInfo.name, call.contactInfo.number),
+                        fallbackIcon = if (call.isVoicemailNumber) {
+                            LocalAppIcons.current.voicemail
+                        } else {
+                            LocalAppIcons.current.person
+                        },
+                        avatarIcon = if (isNumberBlocked) LocalAppIcons.current.block else null,
+                        contentDescription = if (call.isVoicemailNumber) {
+                            stringResource(R.string.voicemail)
+                        } else {
+                            null
+                        },
+                        modifier = Modifier
+                            .size(50.dp)
+                            .clip(CircleShape)
+                            .clickable(
+                                enabled = call.isContactSaved() && !call.isVoicemailNumber,
+                                onClick = onOpenContact,
+                            )
+                    )
+                    Spacer(modifier = Modifier.size(8.dp))
+                    CallDetailTitle(
+                        call = call,
+                        isNumberBlocked = isNumberBlocked,
+                        modifier = Modifier.weight(1f),
+                    )
+                }
+            }
+        },
+        navigationIcon = {
+            IconButton(
+                onClick = onNavigateBack
+            ) {
+                AppIcon(LocalAppIcons.current.arrowLeft, contentDescription = null)
+            }
+        },
+        actions = {
+            if (canBlock || canUnblock) {
+                IconButton(onClick = { menuExpanded = true }) {
+                    AppIcon(LocalAppIcons.current.more, contentDescription = stringResource(R.string.more_options))
+                }
+                DropdownMenu(
+                    expanded = menuExpanded,
+                    onDismissRequest = { menuExpanded = false }
+                ) {
+                    if (canBlock) {
+                        DropdownMenuItem(
+                            text = { Text(stringResource(R.string.blockThisCaller)) },
+                            onClick = {
+                                menuExpanded = false
+                                showBlockConfirmation = true
+                            }
+                        )
+                    }
+                    if (canUnblock) {
+                        DropdownMenuItem(
+                            text = { Text(stringResource(R.string.unblockThisCaller)) },
+                            onClick = {
+                                menuExpanded = false
+                                onUnblock()
+                            }
+                        )
+                    }
+                }
+            }
+        }
+    )
+}
+
+@Composable
+private fun CallDetailTitle(
+    call: DialerCall,
+    isNumberBlocked: Boolean,
+    modifier: Modifier = Modifier,
+) {
+    val displayNumber = call.contactInfo.formattedNumber
+        ?.takeIf { it.isNotBlank() }
+        ?: call.contactInfo.number.orEmpty()
+
+    Column(modifier = modifier) {
+        when {
+        call.isVoicemailNumber -> Text(stringResource(R.string.voicemail), maxLines = 1, overflow = TextOverflow.Ellipsis)
+        call.isAnonymous() -> Text(stringResource(R.string.anonymous), maxLines = 1, overflow = TextOverflow.Ellipsis)
+        !call.contactInfo.name.isNullOrBlank() -> {
+            val contact = call.contactInfo
+            val phoneType = if (
+                contact.type == ContactsContract.CommonDataKinds.Phone.TYPE_CUSTOM &&
+                !contact.label.isNullOrBlank()
+            ) {
+                contact.label.orEmpty()
+            } else {
+                stringResource(
+                    ContactsContract.CommonDataKinds.Phone.getTypeLabelResource(contact.type ?: 0)
+                )
+            }
+
+            Column {
+                Text(
+                    text = contact.name!!.trim(),
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                Text(
+                    text = if (isNumberBlocked) stringResource(R.string.blocked) else stringResource(
+                        R.string.call_detail_contact_subtitle,
+                        phoneType,
+                        displayNumber,
+                    ),
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+        }
+        else -> {
+            if (isNumberBlocked) {
+                Column {
+                    Text(displayNumber, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    Text(
+                        text = stringResource(R.string.blocked),
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
+            } else {
+                Text(displayNumber, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            }
+        }
+        }
+    }
+}
+
+@Composable
+private fun BottomBar(
+    isAnon: Boolean,
+    makeCall: () -> Unit,
+    sendMessage: () -> Unit,
+    copyNumber: () -> Unit,
+    dialNumber: () -> Unit,
+    deleteCalls: () -> Unit,
+    icons: dev.alenajam.opendialer.core.common.ui.AppIcons = LocalAppIcons.current
+) {
+    BottomAppBar(
+        actions = {
+            if (!isAnon) {
+                IconButton(onClick = sendMessage) {
+                    AppIcon(icons.message, contentDescription = stringResource(R.string.send_message))
+                }
+                IconButton(onClick = copyNumber) {
+                    AppIcon(icons.copy, contentDescription = stringResource(R.string.copy_number))
+                }
+                IconButton(onClick = dialNumber) {
+                    AppIcon(icons.edit, contentDescription = stringResource(R.string.edit_number_before_call))
+                }
+            }
+            IconButton(onClick = deleteCalls) {
+                AppIcon(icons.delete, contentDescription = stringResource(R.string.delete))
+            }
+        },
+        floatingActionButton = {
+            if (!isAnon) {
+                FloatingActionButton(
+                    onClick = makeCall,
+                    containerColor = BottomAppBarDefaults.bottomAppBarFabColor,
+                    elevation = FloatingActionButtonDefaults.bottomAppBarFabElevation()
+                ) {
+                    AppIcon(
+                        icon = LocalAppIcons.current.phone,
+                        contentDescription = stringResource(R.string.action_call),
+                        modifier = Modifier.size(24.dp)
+                    )
+                }
+            }
+        }
+    )
+}
+
+@Composable
+private fun CallRow(
+    call: DetailCall,
+    isVoicemailNumber: Boolean = false,
+    icons: dev.alenajam.opendialer.core.common.ui.AppIcons = LocalAppIcons.current
+) {
+    val subtitleColor = if (!isVoicemailNumber && call.type == CallType.MISSED) {
+        MaterialTheme.colorScheme.error
+    } else {
+        MaterialTheme.colorScheme.onSurfaceVariant
+    }
+
+    Row(
+        horizontalArrangement = Arrangement.spacedBy(16.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        modifier = Modifier.padding(vertical = 16.dp, horizontal = 16.dp),
+    ) {
+        AppIcon(
+            icon = if (isVoicemailNumber) {
+                icons.voicemail
+            } else when (call.type) {
+                CallType.INCOMING, CallType.ANSWERED_EXTERNALLY -> icons.callReceived
+                CallType.OUTGOING -> icons.callMade
+                CallType.MISSED, CallType.REJECTED -> icons.callMissed
+                CallType.VOICEMAIL -> icons.voicemail
+                CallType.BLOCKED -> icons.blockCall
+            }, contentDescription = null, tint = subtitleColor,
+            modifier = Modifier.size(24.dp)
+        )
+
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = if (isVoicemailNumber) {
+                    stringResource(R.string.voicemail_call)
+                } else when (call.type) {
+                    CallType.OUTGOING -> stringResource(id = R.string.outgoing_call)
+                    CallType.INCOMING, CallType.ANSWERED_EXTERNALLY -> stringResource(id = R.string.incoming_call)
+                    CallType.MISSED -> stringResource(id = R.string.missed_call)
+                    CallType.VOICEMAIL -> stringResource(id = R.string.voicemail_call)
+                    CallType.REJECTED -> stringResource(id = R.string.rejected_call)
+                    CallType.BLOCKED -> stringResource(id = R.string.blocked_call)
+                },
+                style = MaterialTheme.typography.bodyLarge,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+            ) {
+                Text(
+                    text = formatRelativeTime(call.date),
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = subtitleColor,
+                )
+            }
+        }
+
+        if (call.duration > 0) {
+            Text(
+                text = CommonUtils.getDurationTimeStringMinimal(call.duration * 1000),
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
+    }
+}
+
+private val incomingDetailCallMock = DetailCall(
+    id = 1,
+    date = Date(),
+    type = CallType.INCOMING,
+    duration = 500L,
+)
+
+private val callMock = DialerCall(
+    id = 1,
+    number = "333123456",
+    date = Date(),
+    type = CallType.OUTGOING,
+    options = emptyList(),
+    childCalls = listOf(
+        incomingDetailCallMock
+    ),
+    contactInfo = ContactInfo(
+        name = "John Doe",
+        number = "3331234567",
+        photoUri = null
+    )
+)
+
+@Preview(showBackground = true)
+@Composable
+private fun TopBarPreview() {
+    TopBar(
+        call = callMock,
+        options = emptyList(),
+        onBlock = {},
+        onUnblock = {},
+        onOpenContact = {},
+        onNavigateBack = {},
+    )
+}
+
+@Preview(showBackground = true)
+@Composable
+private fun BottomBarPreview() {
+    BottomBar(
+        isAnon = false,
+        makeCall = {},
+        sendMessage = {},
+        copyNumber = {},
+        dialNumber = {},
+        deleteCalls = {},
+    )
+}
+
+@Preview(showBackground = true)
+@Composable
+private fun CallRowPreview() {
+    CallRow(call = incomingDetailCallMock)
+}

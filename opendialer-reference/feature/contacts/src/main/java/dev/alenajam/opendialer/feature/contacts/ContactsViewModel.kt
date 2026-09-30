@@ -1,0 +1,113 @@
+package dev.alenajam.opendialer.feature.contacts
+
+import android.app.Application
+import android.telephony.PhoneNumberUtils
+import androidx.lifecycle.ViewModel
+import androidx.lifecycle.viewModelScope
+import dagger.hilt.android.lifecycle.HiltViewModel
+import dev.alenajam.opendialer.core.common.CommonUtils
+import dev.alenajam.opendialer.core.common.PermissionUtils
+import dev.alenajam.opendialer.core.common.telecom.CallAccount
+import dev.alenajam.opendialer.core.common.telecom.CallPlacementRepository
+import dev.alenajam.opendialer.core.common.telecom.CallPlacementResult
+import dev.alenajam.opendialer.data.calls.CallsRepository
+import dev.alenajam.opendialer.data.calls.DialerCallEntity
+import dev.alenajam.opendialer.data.contacts.ContactsRepository
+import dev.alenajam.opendialer.data.contacts.DialerContactSummary
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.launch
+import javax.inject.Inject
+
+@HiltViewModel
+class ContactsViewModel
+@Inject constructor(
+    private val contactsRepository: ContactsRepository,
+    private val callsRepository: CallsRepository,
+    private val app: Application,
+    private val callPlacementRepository: CallPlacementRepository,
+) : ViewModel() {
+    private val _contacts = MutableStateFlow<List<DialerContactSummary>>(emptyList())
+    val contacts: StateFlow<List<DialerContactSummary>> = _contacts
+    private val _profileContact = MutableStateFlow<DialerContactSummary?>(null)
+    val profileContact: StateFlow<DialerContactSummary?> = _profileContact
+    private val _hasRuntimePermission = MutableStateFlow(false)
+    val hasRuntimePermission: StateFlow<Boolean> = _hasRuntimePermission
+    private val _calls = MutableStateFlow<List<DialerCallEntity>>(emptyList())
+    private var hasCallRuntimePermission = false
+    private var contactsJob: Job? = null
+    private var profileContactJob: Job? = null
+    private var callsJob: Job? = null
+
+    init {
+        _hasRuntimePermission.value = PermissionUtils.hasContactsPermission(app)
+        hasCallRuntimePermission = PermissionUtils.hasMakeCallPermission(app)
+        getContacts()
+        getCalls()
+    }
+
+    fun getContacts() {
+        if (!hasRuntimePermission.value) return
+
+        contactsJob?.cancel()
+        contactsJob = viewModelScope.launch {
+            contactsRepository.getContacts().collect { contacts ->
+                _contacts.value = DialerContactSummary.mapList(contacts)
+            }
+        }
+
+        profileContactJob?.cancel()
+        profileContactJob = viewModelScope.launch {
+            contactsRepository.getProfileContact().collect { profile ->
+                _profileContact.value = profile?.let { DialerContactSummary.mapList(listOf(it)).first() }
+            }
+        }
+    }
+
+    fun handleRuntimePermissionGranted() {
+        _hasRuntimePermission.value = PermissionUtils.hasContactsPermission(app)
+        getContacts()
+    }
+
+    private fun getCalls() {
+        if (!PermissionUtils.hasRecentsPermission(app)) return
+        callsJob?.cancel()
+        callsJob = viewModelScope.launch {
+            callsRepository.getCalls().collect { _calls.value = it }
+        }
+    }
+
+    fun makeCall(number: String): CallPlacementResult = callPlacementRepository.placeCall(number)
+
+    fun makeCall(number: String, account: CallAccount): CallPlacementResult =
+        callPlacementRepository.placeCall(number, account)
+
+    fun handleCallRuntimePermissionGranted() {
+        hasCallRuntimePermission = true
+    }
+
+    fun sendMessage(number: String) = CommonUtils.makeSms(app, number)
+
+    fun getHistoryIds(number: String): List<Int> = _calls.value
+        .filter { PhoneNumberUtils.compare(it.number, number) }
+        .map { it.id }
+
+    fun openContact(contactId: Int) {
+        CommonUtils.showContactDetail(app, contactId)
+    }
+
+    fun openProfileContact() {
+        CommonUtils.showProfileDetail(app)
+    }
+
+    fun shareProfileContact(contactId: Int) {
+        CommonUtils.shareContact(app, contactId)
+    }
+
+    fun toggleFavorite(contactId: Int, isFavorite: Boolean) {
+        viewModelScope.launch {
+            contactsRepository.toggleFavorite(contactId, isFavorite)
+        }
+    }
+}

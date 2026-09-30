@@ -1,0 +1,385 @@
+package dev.alenajam.opendialer.feature.appShell
+
+import android.app.NotificationManager
+import android.content.Intent
+import android.net.Uri
+import android.os.Build
+import android.provider.Settings
+import android.telecom.PhoneAccount
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.Scaffold
+import androidx.compose.material3.TopAppBar
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.padding
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.stringResource
+import androidx.compose.material3.Text
+import androidx.compose.ui.platform.LocalContext
+import androidx.core.util.Consumer
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
+import androidx.navigation.compose.NavHost
+import androidx.navigation.compose.composable
+import androidx.navigation.compose.rememberNavController
+import androidx.navigation.toRoute
+import dev.alenajam.opendialer.core.common.DefaultPhoneManager
+import dev.alenajam.opendialer.core.common.MAIN_ACTIVITY_INTENT_DIAL_EXTRA_ADD_CALL
+import dev.alenajam.opendialer.core.common.getActivity
+import dev.alenajam.opendialer.core.common.ui.AppIcons
+import dev.alenajam.opendialer.core.common.ui.AppProviders
+import dev.alenajam.opendialer.core.common.ui.AppTheme
+import dev.alenajam.opendialer.core.common.ui.AppThemeExtension
+import dev.alenajam.opendialer.core.common.ui.DefaultAppIcons
+import dev.alenajam.opendialer.core.common.ui.AppIcon
+import dev.alenajam.opendialer.core.common.ui.LocalAppIcons
+import dev.alenajam.opendialer.feature.callDetail.CallDetailRoute
+import dev.alenajam.opendialer.feature.callDetail.CallDetailScreen
+import dev.alenajam.opendialer.feature.contacts.AddFavoriteScreen
+import dev.alenajam.opendialer.feature.contactsSearch.ContactsSearchRoute
+import dev.alenajam.opendialer.feature.contactsSearch.ContactsSearchScreen
+import dev.alenajam.opendialer.feature.settings.SettingsRoute
+import dev.alenajam.opendialer.feature.settings.SettingsScreen
+import dev.alenajam.opendialer.feature.settings.QuickResponsesRoute
+import dev.alenajam.opendialer.feature.settings.QuickResponsesScreen
+import dev.alenajam.opendialer.feature.settings.DisplayOptionsRoute
+import dev.alenajam.opendialer.feature.settings.DisplayOptionsScreen
+import dev.alenajam.opendialer.feature.settings.AboutRoute
+import dev.alenajam.opendialer.feature.settings.AboutScreen
+import dev.alenajam.opendialer.feature.settings.SettingsSubpage
+import dev.alenajam.opendialer.feature.settings.SettingsSubpageRoute
+import dev.alenajam.opendialer.feature.settings.SettingsSubpageDestinationRoute
+import dev.alenajam.opendialer.feature.settings.SettingsSubpageScreen
+import dev.alenajam.opendialer.feature.settings.LocalSettingsSubpageNavigator
+import dev.alenajam.opendialer.feature.settings.LocalSettingsRootNavigator
+import dev.alenajam.opendialer.feature.settings.SettingsSubpageNavigator
+import dev.alenajam.opendialer.feature.voicemail.VoicemailScreen
+import kotlinx.serialization.Serializable
+
+@Serializable
+private data object HomeRoute
+
+@Serializable
+private data object VoicemailRoute
+
+@Serializable
+data object AddFavoriteRoute
+
+/** Navigation actions supplied to an application-owned home screen. */
+data class HomeScreenCallbacks(
+    val onOpenDialpad: (String) -> Unit,
+    val onOpenHistory: (List<Int>) -> Unit,
+    val onOpenSettings: () -> Unit,
+    val onOpenAbout: () -> Unit,
+    val onAddFavorite: () -> Unit,
+    val onOpenSettingsSubpage: (String, String?) -> Unit,
+    val onOpenVoicemail: () -> Unit,
+)
+
+data class SettingsScreenCallbacks(
+    val onNavigateBack: () -> Unit,
+    val onOpenSubpage: (String, String?) -> Unit,
+    val onOpenQuickResponses: () -> Unit,
+    val onOpenDisplayOptions: () -> Unit,
+)
+
+data class SetupScreenCallbacks(
+    val isDefaultPhoneApp: Boolean,
+    val hasFullScreenIntentAccess: Boolean,
+    val showDefaultPhoneRecovery: Boolean,
+    val onSetAsDefault: () -> Unit,
+    val onOpenAppInfo: () -> Unit,
+    val onEnableFullScreenIntent: () -> Unit,
+)
+
+@OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
+@Composable
+fun DialerApp(
+    defaultPhoneManager: DefaultPhoneManager,
+    icons: AppIcons = DefaultAppIcons,
+    themeExtension: AppThemeExtension = AppThemeExtension(),
+    setupContent: (@Composable (SetupScreenCallbacks) -> Unit)? = null,
+    settingsSubpages: List<SettingsSubpage> = emptyList(),
+    settingsContent: (@Composable (SettingsScreenCallbacks) -> Unit)? = null,
+    aboutContent: (@Composable (onNavigateBack: () -> Unit) -> Unit)? = null,
+    homeScreenConfiguration: HomeScreenConfiguration = HomeScreenConfiguration(),
+    homeContent: (@Composable (HomeScreenCallbacks) -> Unit)? = null,
+    dialSearchContent: (@Composable (
+        prefilledNumber: String,
+        onOpenHistory: (List<Int>) -> Unit,
+        onDialpadCallStarted: () -> Unit,
+        onNavigateBack: () -> Unit,
+    ) -> Unit)? = null,
+    callDetailContent: (@Composable (onNavigateBack: () -> Unit) -> Unit)? = null,
+    forceLightTheme: Boolean = false,
+) {
+    val navController = rememberNavController()
+
+    AppProviders(icons = icons, themeExtension = themeExtension) {
+        val content: @Composable () -> Unit = {
+        val activity = LocalContext.current.getActivity()
+        var isDefaultPhoneApp by remember(activity) {
+            mutableStateOf(defaultPhoneManager.isDefaultDialer())
+        }
+        var hasFullScreenIntentAccess by remember(activity) {
+            mutableStateOf(activity.canUseFullScreenIntent())
+        }
+        var defaultPhoneRequestWasDenied by remember { mutableStateOf(false) }
+        val lifecycleOwner = LocalLifecycleOwner.current
+
+        fun refreshSetupState() {
+            isDefaultPhoneApp = defaultPhoneManager.isDefaultDialer()
+            hasFullScreenIntentAccess = activity.canUseFullScreenIntent()
+        }
+
+        val defaultPhoneLauncher = rememberLauncherForActivityResult(
+            contract = ActivityResultContracts.StartActivityForResult(),
+            onResult = {
+                refreshSetupState()
+                defaultPhoneRequestWasDenied = !isDefaultPhoneApp
+            }
+        )
+        val fullScreenIntentLauncher = rememberLauncherForActivityResult(
+            contract = ActivityResultContracts.StartActivityForResult(),
+            onResult = { refreshSetupState() }
+        )
+
+        DisposableEffect(activity, lifecycleOwner) {
+            val observer = LifecycleEventObserver { _, event ->
+                if (event == Lifecycle.Event.ON_RESUME) {
+                    refreshSetupState()
+                }
+            }
+            lifecycleOwner.lifecycle.addObserver(observer)
+            onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+        }
+
+        if (!isDefaultPhoneApp || !hasFullScreenIntentAccess) {
+            val setupCallbacks = SetupScreenCallbacks(
+                isDefaultPhoneApp = isDefaultPhoneApp,
+                hasFullScreenIntentAccess = hasFullScreenIntentAccess,
+                showDefaultPhoneRecovery = defaultPhoneRequestWasDenied && !isDefaultPhoneApp,
+                onSetAsDefault = {
+                    defaultPhoneRequestWasDenied = false
+                    defaultPhoneManager.createRequestDefaultDialerIntent()?.let { intent ->
+                        defaultPhoneLauncher.launch(intent)
+                    }
+                },
+                onOpenAppInfo = {
+                    activity?.startActivity(
+                        Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
+                            data = Uri.fromParts("package", activity.packageName, null)
+                        }
+                    )
+                },
+                onEnableFullScreenIntent = {
+                    activity?.let {
+                        fullScreenIntentLauncher.launch(
+                            Intent(Settings.ACTION_MANAGE_APP_USE_FULL_SCREEN_INTENT).apply {
+                                data = Uri.parse("package:${it.packageName}")
+                            }
+                        )
+                    }
+                },
+            )
+            if (setupContent != null) {
+                setupContent(setupCallbacks)
+            } else {
+                SetupScreen(
+                    isDefaultPhoneApp = setupCallbacks.isDefaultPhoneApp,
+                    hasFullScreenIntentAccess = setupCallbacks.hasFullScreenIntentAccess,
+                    showDefaultPhoneRecovery = setupCallbacks.showDefaultPhoneRecovery,
+                    onSetAsDefault = setupCallbacks.onSetAsDefault,
+                    onOpenAppInfo = setupCallbacks.onOpenAppInfo,
+                    onEnableFullScreenIntent = setupCallbacks.onEnableFullScreenIntent,
+                )
+            }
+        } else {
+            HandleDialIntent(
+                onOpenContactsSearch = { navController.navigate(ContactsSearchRoute(it)) }
+            )
+            NavHost(navController = navController, startDestination = HomeRoute) {
+                composable<HomeRoute> {
+                    val callbacks = HomeScreenCallbacks(
+                        onOpenDialpad = { number -> navController.navigate(ContactsSearchRoute(number)) },
+                        onOpenHistory = { navController.navigate(CallDetailRoute(callIds = it)) },
+                        onOpenSettings = { navController.navigate(SettingsRoute) },
+                        onOpenAbout = { navController.navigate(AboutRoute) },
+                        onAddFavorite = { navController.navigate(AddFavoriteRoute) },
+                        onOpenSettingsSubpage = { pageId, payload -> navController.navigate(SettingsSubpageRoute(pageId, payload)) },
+                        onOpenVoicemail = { navController.navigate(VoicemailRoute) },
+                    )
+                    homeContent?.invoke(callbacks) ?: HomeScreen(
+                        onOpenDialpad = callbacks.onOpenDialpad,
+                        onOpenHistory = callbacks.onOpenHistory,
+                        onOpenSettings = callbacks.onOpenSettings,
+                        onOpenAbout = callbacks.onOpenAbout,
+                        onAddFavorite = callbacks.onAddFavorite,
+                        onOpenSettingsSubpage = callbacks.onOpenSettingsSubpage,
+                        onOpenVoicemail = callbacks.onOpenVoicemail,
+                        configuration = homeScreenConfiguration,
+                    )
+                }
+                composable<AddFavoriteRoute> {
+                    AddFavoriteScreen(onNavigateBack = { navController.popBackStack() })
+                }
+                composable<VoicemailRoute> {
+                    Scaffold(
+                        topBar = {
+                            TopAppBar(
+                                title = { Text(stringResource(R.string.voicemail)) },
+                                navigationIcon = {
+                                    IconButton(onClick = { navController.popBackStack() }) {
+                                        AppIcon(LocalAppIcons.current.arrowLeft, contentDescription = null)
+                                    }
+                                }
+                            )
+                        }
+                    ) { innerPadding ->
+                        Box(Modifier.padding(innerPadding)) {
+                            VoicemailScreen()
+                        }
+                    }
+                }
+                composable<ContactsSearchRoute> { backStackEntry ->
+                    val route = backStackEntry.toRoute<ContactsSearchRoute>()
+                    dialSearchContent?.invoke(
+                        route.prefilledNumber,
+                        { navController.navigate(CallDetailRoute(callIds = it)) },
+                        { navController.popBackStack() },
+                        { navController.popBackStack() },
+                    ) ?: ContactsSearchScreen(
+                        onOpenHistory = { navController.navigate(CallDetailRoute(callIds = it)) },
+                        onDialpadCallStarted = { navController.popBackStack() }
+                    )
+                }
+                composable<CallDetailRoute> {
+                    callDetailContent?.invoke { navController.popBackStack() }
+                        ?: CallDetailScreen(onNavigateBack = { navController.popBackStack() })
+                }
+                composable<SettingsRoute> {
+                    val onOpenSubpage = { pageId: String, payload: String? ->
+                        navController.navigate(SettingsSubpageRoute(pageId, payload))
+                    }
+                    val settingsCallbacks = SettingsScreenCallbacks(
+                        onNavigateBack = { navController.popBackStack() },
+                        onOpenSubpage = onOpenSubpage,
+                        onOpenQuickResponses = { navController.navigate(QuickResponsesRoute) },
+                        onOpenDisplayOptions = { navController.navigate(DisplayOptionsRoute) },
+                    )
+                    settingsContent?.invoke(settingsCallbacks) ?: SettingsScreen(
+                        onNavigateBack = { navController.popBackStack() },
+                        onOpenQuickResponses = settingsCallbacks.onOpenQuickResponses,
+                        onOpenDisplayOptions = settingsCallbacks.onOpenDisplayOptions,
+                        subpages = settingsSubpages,
+                        onOpenSubpage = onOpenSubpage,
+                    )
+                }
+                composable<AboutRoute> {
+                    aboutContent?.invoke { navController.popBackStack() }
+                        ?: AboutScreen(onNavigateBack = { navController.popBackStack() })
+                }
+                composable<QuickResponsesRoute> {
+                    QuickResponsesScreen(onNavigateBack = { navController.popBackStack() })
+                }
+                composable<DisplayOptionsRoute> {
+                    DisplayOptionsScreen(onNavigateBack = { navController.popBackStack() })
+                }
+                composable<SettingsSubpageRoute> { backStackEntry ->
+                    val route = backStackEntry.toRoute<SettingsSubpageRoute>()
+                    settingsSubpages.firstOrNull { it.id == route.pageId }?.let { page ->
+                        SettingsSubpageScreen(
+                            page = page,
+                            payload = route.payload,
+                            onNavigateBack = { navController.popBackStack() },
+                            onNavigateToDestination = { destinationId, payload ->
+                                navController.navigate(SettingsSubpageDestinationRoute(route.pageId, destinationId, payload))
+                            },
+                            onNavigateToSubpage = { pageId, payload ->
+                                navController.navigate(SettingsSubpageRoute(pageId, payload))
+                            },
+                        )
+                    }
+                }
+                composable<SettingsSubpageDestinationRoute> { backStackEntry ->
+                    val route = backStackEntry.toRoute<SettingsSubpageDestinationRoute>()
+                    settingsSubpages.firstOrNull { it.id == route.pageId }
+                        ?.destinations
+                        ?.firstOrNull { it.id == route.destinationId }
+                        ?.let { destination ->
+                            CompositionLocalProvider(
+                                LocalSettingsSubpageNavigator provides SettingsSubpageNavigator(
+                                    { destinationId, payload ->
+                                        navController.navigate(
+                                            SettingsSubpageDestinationRoute(
+                                                route.pageId,
+                                                destinationId,
+                                                payload,
+                                            )
+                                        )
+                                    },
+                                    { navController.popBackStack() },
+                                ),
+                                LocalSettingsRootNavigator provides { pageId, payload ->
+                                    navController.navigate(SettingsSubpageRoute(pageId, payload))
+                                },
+                            ) {
+                                destination.content(route.payload) { navController.popBackStack() }
+                            }
+                        }
+                }
+            }
+        }
+        }
+        if (forceLightTheme) {
+            AppTheme(darkTheme = false, content = content)
+        } else {
+            content()
+        }
+    }
+}
+
+private fun android.app.Activity?.canUseFullScreenIntent(): Boolean =
+    Build.VERSION.SDK_INT < Build.VERSION_CODES.UPSIDE_DOWN_CAKE ||
+            this?.getSystemService(NotificationManager::class.java)?.canUseFullScreenIntent() == true
+
+@Composable
+private fun HandleDialIntent(onOpenContactsSearch: (prefilledNumber: String) -> Unit) {
+    val activity = LocalContext.current.getActivity()
+
+    fun handleIntent(intent: Intent?) {
+        if (intent == null) return
+
+        if (
+            intent.action == Intent.ACTION_DIAL &&
+            intent.getBooleanExtra(MAIN_ACTIVITY_INTENT_DIAL_EXTRA_ADD_CALL, false)
+        ) {
+            onOpenContactsSearch("")
+        } else if (
+            arrayOf(Intent.ACTION_DIAL, Intent.ACTION_VIEW).contains(intent.action) &&
+            intent.data?.scheme == PhoneAccount.SCHEME_TEL
+        ) {
+            onOpenContactsSearch(intent.data!!.schemeSpecificPart)
+        }
+    }
+
+    LaunchedEffect(Unit) {
+        handleIntent(activity?.intent)
+    }
+
+    DisposableEffect(Unit) {
+        val listener = Consumer<Intent>(::handleIntent)
+        activity?.addOnNewIntentListener(listener)
+        onDispose { activity?.removeOnNewIntentListener(listener) }
+    }
+}

@@ -1,0 +1,65 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name" translatable="false">OpenDialer</string>
+    <string name="opendialer_name" translatable="false">OpenDialer</string>
+    <string name="version" translatable="false">v%1$s</string>
+    <string name="customize_quick_responses" comment="Settings item title for editing preset decline-with-message replies.">Customize quick responses</string>
+    <string name="customize_quick_responses_description" comment="Settings item summary for preset decline-with-message replies.">Edit the messages sent when declining a call</string>
+    <string name="edit_quick_response" comment="Title of the dialog for editing a preset decline-with-message reply.">Edit quick response</string>
+    <string name="add" comment="Button that adds the selected item.">Add</string>
+    <string name="quick_response" comment="Text-field label for a preset decline-with-message reply.">Quick response</string>
+    <string name="save" comment="Button that saves the edited setting.">Save</string>
+    <string name="cancel" comment="Button that dismisses the current dialog without applying changes.">Cancel</string>
+    <string name="light" comment="Theme option that always uses the light color scheme.">Light</string>
+    <string name="dark" comment="Theme option that always uses the dark color scheme.">Dark</string>
+    <string name="set_battery_saver" comment="Theme option that follows the device or battery-saver setting.">Use system setting</string>
+    <string name="theme" comment="Settings item title for choosing the app color theme.">Theme</string>
+    <string name="display_options" comment="Settings section title for appearance preferences.">Display options</string>
+    <string name="display_options_description" comment="Settings section summary for appearance preferences.">Choose how %1$s appears</string>
+    <string name="dialer" comment="Settings section title for phone-related preferences.">Dialer</string>
+    <string name="update_checks" comment="Settings section title for update-check preferences.">Updates</string>
+    <string name="check_for_updates" comment="Settings toggle label for enabling automatic update checks.">Check for updates</string>
+    <string name="check_for_updates_description" comment="Settings toggle summary for automatic update checks.">Check GitHub for new versions</string>
+    <string name="manageBlockedNumbers" comment="Settings item title that opens the system blocked-number list.">Manage blocked numbers</string>
+    <string name="manage_blocked_numbers_description" comment="Settings item summary for reviewing blocked phone numbers.">Review and unblock phone numbers</string>
+    <string name="manage_blocked_numbers_unavailable" comment="Message shown when the device has no blocked-number settings screen.">Blocked number settings are not available on this device</string>
+    <string name="screen_settings_title" comment="Title of the Settings screen.">Settings</string>
+    <string name="screen_about_title" comment="Title of the About screen.">About</string>
+    <string name="about_section_developer" comment="Heading for developer information on the About screen.">Developer</string>
+    <string name="about_section_community" comment="Heading for community links on the About screen.">Community</string>
+    <string name="about_section_open_source" comment="Heading for source-code and support links on the About screen.">Open source and support</string>
+    <string name="about_section_credits" comment="Heading for third-party credits on the About screen.">Credits</string>
+    <string name="typography_credit_title" comment="Title of the font credit card on the About screen.">Typography</string>
+    <string name="developer_credit" translatable="false">Alen Ajam</string>
+    <string name="developer_domain" translatable="false">alenajam.dev</string>
+    <string name="developer_website" comment="Description of the developer website link. %1$s is the website domain.">Visit %1$s</string>
+    <string name="url_developer" translatable="false">https://alenajam.dev</string>
+    <string name="join_discord" comment="Title of the community Discord link on the About screen.">Join the Discord</string>
+    <string name="discord_description" comment="Description of the community Discord link on the About screen.">Chat with the community and follow development</string>
+    <string name="url_discord" translatable="false">https://discord.gg/j9797nCn64</string>
+    <string name="contribute_translations" comment="Title of the %1$s translation contribution link on the About screen.">Contribute translations</string>
+    <string name="contribute_translations_description" comment="Description of the %1$s translation contribution link on the About screen.">Help make %1$s available in more languages.</string>
+    <string name="url_crowdin_opendialer" translatable="false">https://crowdin.com/project/opendialer</string>
+    <string name="additional_translation_project_title" translatable="false"></string>
+    <string name="url_additional_translation_project" translatable="false"></string>
+    <string name="feature_requests" comment="Title of the feature-request link on the About screen.">Feature requests</string>
+    <string name="feature_requests_description" comment="Description of the feature-request link on the About screen.">Propose and vote on ideas for %1$s.</string>
+    <string name="url_feature_requests" translatable="false">https://opendialer.fider.io/</string>
+    <string name="view_source_code" comment="Title of the source-code link on the About screen.">View source code</string>
+    <string name="open_source_description" comment="Description of the source-code link on the About screen.">%1$s is open source. Explore the code and contribute on GitHub.</string>
+    <string name="url_github_opendialer" translatable="false">https://github.com/oxcened/opendialer</string>
+    <string name="report_an_issue" comment="Title of the issue-reporting link on the About screen.">Report an issue</string>
+    <string name="issues_description" comment="Description of the issue-reporting link on the About screen.">Found a bug or have an idea? Open an issue on GitHub.</string>
+    <string name="url_github_issues" translatable="false">https://github.com/oxcened/opendialer/issues</string>
+    <string name="contact_developer" comment="Title of the developer email link on the About screen.">Contact</string>
+    <string name="contact_email" translatable="false">hello@alenajam.dev</string>
+    <string name="url_contact_email" translatable="false">mailto:hello@alenajam.dev</string>
+    <string name="font_name" translatable="false"></string>
+    <string name="font_author" translatable="false"></string>
+    <string name="url_font" translatable="false"></string>
+    <string name="font_credit_format" comment="Font credit. %1$s is the font name and %2$s is the font author.">%1$s by %2$s</string>
+    <string name="icon_credit_title" comment="Title of the icon-design credit card on the About screen.">Icon design</string>
+    <string name="icon_designer" translatable="false"></string>
+    <string name="url_icon_designer" translatable="false"></string>
+    <string name="icon_credit_format" comment="Icon credit. %1$s is the icon designer.">Icons by %1$s</string>
+</resources>
