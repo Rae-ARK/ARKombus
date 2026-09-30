@@ -35,7 +35,7 @@ happen (or has just happened), so accepted work has a home.
 
 | File | Covers |
 | --- | --- |
-| _None yet._ | Stage ladders for accepted proposals land here. |
+| [`FRONTEND-FIRST-ADDENDUM.md`](FRONTEND-FIRST-ADDENDUM.md) | Staged, nine-rung (Stage 0-8) ladder for the accepted frontend-first proposal: a feasibility spike and gap register first, then foundations, the home shell, dialpad, contacts, call log, call screens, settings, and finally the frozen UI/backend contract. All stages PLANNED. |
 
 ## Contributing
 

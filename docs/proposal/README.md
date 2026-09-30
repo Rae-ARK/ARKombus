@@ -46,7 +46,7 @@ happen to them, or for rejection.**
 
 | File | Covers |
 | --- | --- |
-| _None yet._ | Proposals land here. |
+| [`FRONTEND-FIRST-PROPOSAL.md`](FRONTEND-FIRST-PROPOSAL.md) | Build the ARKlight frontend first, against mock data only, before any backend: why, the honest fit question against ARKlight's stated non-targets, the screen inventory drawn from the two reference projects, a working state model, and the open questions each stage resolves. **Accepted -- staged as a nine-rung ladder (Stage 0-8) in [`docs/implementation/FRONTEND-FIRST-ADDENDUM.md`](../implementation/FRONTEND-FIRST-ADDENDUM.md).** |
 
 ## Contributing
 

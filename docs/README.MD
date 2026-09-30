@@ -28,6 +28,16 @@ the ladder is trimmed or removed.
 The design record for ARKombus: what it is, how it is built, and why.
 **Not deletable**; updated in place rather than removed.
 
+## Current Work
+
+The frontend comes first, built against mock data with no backend. The
+accepted proposal is
+[`proposal/FRONTEND-FIRST-PROPOSAL.md`](proposal/FRONTEND-FIRST-PROPOSAL.md)
+and its stage ladder is
+[`implementation/FRONTEND-FIRST-ADDENDUM.md`](implementation/FRONTEND-FIRST-ADDENDUM.md).
+The backend proposal starts once that ladder's contract is frozen
+(Stage 8).
+
 ## Tech Stack
 
 | Layer | Choice |
@@ -48,11 +58,12 @@ The repo root carries two third-party reference checkouts used for study
 only, not as code to reuse:
 
 - `handsfree-linux-reference/` -- an existing Python/PyQt HFP hands-free
-  app for Linux (BlueZ, SCO audio, PBAP contacts).
-- `opendialer-reference/` -- an open-source Android dialer, used as a UX
-  reference for the dialer, contacts and call-log screens.
+  app for Linux (BlueZ, SCO audio, PBAP contacts). MIT licensed.
+- `opendialer-reference/` -- an open-source Android dialer (Kotlin), used
+  as a UX reference for the dialer, contacts and call-log screens.
+  Apache-2.0 licensed.
 
-Check each project's own license before borrowing anything beyond ideas.
+Both are studied for ideas, not ported.
 
 ## Source Layout
 
